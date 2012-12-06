@@ -10,6 +10,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using Wintellect.PowerCollections;
 
 namespace ScottyApps.Utilities.DbContextExtentions
 {
@@ -91,9 +92,8 @@ namespace ScottyApps.Utilities.DbContextExtentions
             return objectQuery as ObjectQuery;
         }
 
-        public static void SaveChanges<TContext, TEntry>(this TContext ctx, List<TEntry> toBeUpdatedEntities)
+        public static void SaveChanges<TContext>(this TContext ctx, List<Triple<object, EntityState, string[]>> toBeUpdatedEntities)
             where TContext : DbContext
-            where TEntry : EntityBase
         {
             if (toBeUpdatedEntities == null || toBeUpdatedEntities.Count == 0)
             {
@@ -112,7 +112,7 @@ namespace ScottyApps.Utilities.DbContextExtentions
                 ctx.SaveChanges();
             }
         }
-        private static void AttachObjectWithState<TContext, TEntry>(TContext ctx, TEntry entry, ref Dictionary<Guid, EntityBase> objDic)
+        private static void AttachObjectWithState<TContext>(TContext ctx, TEntry entry, ref Dictionary<Guid, EntityBase> objDic)
             where TContext : DbContext
             where TEntry : EntityBase
         {

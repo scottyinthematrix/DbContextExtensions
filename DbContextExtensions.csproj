@@ -37,12 +37,13 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>Libs\Entlib\Microsoft.Practices.Unity.dll</HintPath>
     </Reference>
-    <Reference Include="ScottyApps.Utilities.EntlibExtensions">
-      <HintPath>Libs\Entlib\ScottyApps.Utilities.EntlibExtensions.dll</HintPath>
+    <Reference Include="PowerCollections">
+      <HintPath>lib\PowerCollections\PowerCollections.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Data.Entity" />
+    <Reference Include="System.Web" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
