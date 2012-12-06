@@ -211,6 +211,5 @@ namespace ScottyApps.Utilities.DbContextExtentions
             entry.State = EntityState.Modified;
             return entry;
         }
-
     }
 }
