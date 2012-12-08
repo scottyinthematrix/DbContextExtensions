@@ -16,25 +16,6 @@ namespace ScottyApps.Utilities.DbContextExtentions
 {
     public static class DbContextExtentions
     {
-        public static void Update<TEntry>(this DbContext ctx, TEntry entity, params Expression<Func<TEntry, object>>[] dirtyFields)
-            where TEntry : EntityBase
-        {
-            ctx.Set(typeof(TEntry)).Attach(entity);
-
-            // TODO
-            // test below code works as expected when passing non-null dirty fields
-            ctx.Entry(entity).State = System.Data.EntityState.Modified;
-            if (dirtyFields != null && dirtyFields.Length > 0)
-            {
-                dirtyFields.ToList().ForEach(field =>
-                {
-                    ctx.Entry(entity).Property(field).IsModified = true;
-                });
-            }
-
-            ctx.SaveChanges();
-        }
-
         public static int Delete<TEntry>(this DbSet<TEntry> dbSet, Expression<Func<TEntry, bool>> predicate)
             where TEntry : class
         {
@@ -84,6 +65,10 @@ namespace ScottyApps.Utilities.DbContextExtentions
 
             return context as DbContext;
         }
+        private static ObjectContext GetObjectContext(DbContext ctx)
+        {
+            return (ctx as IObjectContextAdapter).ObjectContext;
+        }
         private static ObjectQuery GetObjectQueryFromDbQuery<TEntry>(DbQuery<TEntry> query)
         {
             var binding = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -100,57 +85,65 @@ namespace ScottyApps.Utilities.DbContextExtentions
                 return;
             }
 
-            Dictionary<Guid, EntityBase> objDic = new Dictionary<Guid, EntityBase>();
-
-            using (ctx)
+            foreach (var entry in toBeUpdatedEntities)
             {
-                foreach (var entry in toBeUpdatedEntities)
-                {
-                    AttachObjectWithState(ctx, entry, ref objDic);
-                }
-
-                ctx.SaveChanges();
+                AttachObjectWithState(ctx, toBeUpdatedEntities, entry);
             }
+
+            ctx.SaveChanges();
         }
-        private static void AttachObjectWithState<TContext>(TContext ctx, TEntry entry, ref Dictionary<Guid, EntityBase> objDic)
+        private static void AttachObjectWithState<TContext>(TContext ctx, List<Triple<object, EntityState, string[]>> triples, Triple<object, EntityState, string[]> entry)
             where TContext : DbContext
-            where TEntry : EntityBase
         {
-            if (!objDic.ContainsKey(entry.EntityGuid))
+// ReSharper disable ConditionIsAlwaysTrueOrFalse
+            if (entry == null)
+// ReSharper restore ConditionIsAlwaysTrueOrFalse
+// ReSharper disable HeuristicUnreachableCode
+            {
+                return;
+            }
+// ReSharper restore HeuristicUnreachableCode
+            var entityEntry = entry.First;
+            var entryType = entityEntry.GetType();
+            var state = entry.Second;
+            var dirtyFieldNames = entry.Third;
+
+            var objCtx = GetObjectContext(ctx);
+            ObjectStateEntry objStateEntry = null;
+            if (false == objCtx.ObjectStateManager.TryGetObjectStateEntry(entityEntry, out objStateEntry))
             {
                 // attach object itself
-                switch (entry.State)
+                switch (state)
                 {
                     case EntityState.Added:
-                        ctx.Set(typeof(TEntry)).Add(entry);
+                        ctx.Set(entryType).Add(entityEntry);
                         break;
                     case EntityState.Deleted:
-                        ctx.Set(typeof(TEntry)).Remove(entry);
+                        ctx.Set(entryType).Remove(entityEntry);
                         break;
                     case EntityState.Modified:
-                        ctx.Set(typeof(TEntry)).Attach(entry);
-                        ctx.Entry(entry).State = EntityState.Modified;
-                        if (entry.DirtyFields != null && entry.DirtyFields.Length > 0)
+                        ctx.Set(entryType).Attach(entityEntry);
+                        var dbEntry = ctx.Entry(entityEntry);
+                        dbEntry.State = EntityState.Modified;
+                        if (dirtyFieldNames != null && dirtyFieldNames.Length > 0)
                         {
-                            var dbEntry = ctx.Entry((EntityBase)entry);
-                            entry.DirtyFields.ToList().ForEach(f => dbEntry.Property(f).IsModified = true);
+                            dirtyFieldNames.ToList().ForEach(f => dbEntry.Property(f).IsModified = true);
                         }
                         break;
                 }
             }
             // attach navigation objects belong to this object
-            List<PropertyInfo> navProps = GetNavProps(entry);
+            var navProps = GetNavProps(ctx, entityEntry);
             if (navProps != null && navProps.Count > 0)
             {
                 foreach (var prop in navProps)
                 {
-                    var val = prop.GetValue(entry, null);
+                    var val = prop.First.GetValue(entry, null);
                     if (val == null) continue;
 
-                    if (typeof(EntityBase).IsAssignableFrom(prop.PropertyType))    // individual child
+                    if (!prop.Second)    // individual child
                     {
-                        var entity = val as EntityBase;
-                        AttachObjectWithState(ctx, entity, ref objDic);
+                        AttachObjectWithState(ctx, triples, FindTriple(triples, val));
                     }
                     else
                     {
@@ -159,19 +152,49 @@ namespace ScottyApps.Utilities.DbContextExtentions
                         {
                             foreach (var entity in collection.Cast<object>().Where(entity => entity != null))
                             {
-                                AttachObjectWithState(ctx, entity as EntityBase, ref objDic);
+                                AttachObjectWithState(ctx, triples, FindTriple(triples, entity));
                             }
                         }
                     }
                 }
             }
-
         }
-        private static List<PropertyInfo> GetNavProps<TEntry>(TEntry entry)
-            where TEntry : EntityBase
+
+        private static Triple<object, EntityState, string[]> FindTriple(List<Triple<object, EntityState, string[]>> entryList, object entity)
         {
-            List<PropertyInfo> propList = new List<PropertyInfo>();
-            Type type = typeof(EntityBase);
+            return entryList.Find(e => ReferenceEquals(e.First, entity));
+        }
+
+        private static List<Type> _allowedEntityTypes = null;
+        private static List<Type> GetAllowedEntityTypes<TContext>(TContext ctx)
+            where TContext : DbContext
+        {
+            if (_allowedEntityTypes != null)
+            {
+                return _allowedEntityTypes;
+            }
+
+            var query = from p in ctx.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                        let propType = p.PropertyType
+                        where propType.IsGenericType && propType == (typeof(DbSet<>))
+                        select propType.GetGenericArguments()[0];
+            _allowedEntityTypes = query.ToList();
+            return _allowedEntityTypes;
+        }
+
+        private static bool IsEntityTypeInContext<TContext>(TContext ctx, Type entityType)
+            where TContext : DbContext
+        {
+            var allEntityTypes = GetAllowedEntityTypes(ctx);
+            return allEntityTypes.Exists(t => t.IsAssignableFrom(entityType));
+        }
+
+        private static List<Pair<PropertyInfo, bool /* true if it is ICollection<> */>> GetNavProps<TContext>(TContext ctx, object entry)
+            where TContext : DbContext
+        {
+            var propList = new List<Pair<PropertyInfo, bool>>();
+
+            var allEntityTypes = GetAllowedEntityTypes(ctx);
 
             foreach (var p in entry.GetType().GetProperties())
             {
@@ -180,36 +203,18 @@ namespace ScottyApps.Utilities.DbContextExtentions
                 {
                     Type[] argTypes = p.PropertyType.GetGenericArguments();
                     if (argTypes.Length == 1
-                        && type.IsAssignableFrom(argTypes[0]))
+                        && IsEntityTypeInContext(ctx, argTypes[0]))
                     {
-                        propList.Add(p);
+                        propList.Add(new Pair<PropertyInfo, bool>(p, true));
                     }
                 }
-                else if (type.IsAssignableFrom(p.PropertyType))
+                else if (IsEntityTypeInContext(ctx, p.PropertyType))
                 {
-                    propList.Add(p);
+                    propList.Add(new Pair<PropertyInfo, bool>(p, false));
                 }
             }
 
             return propList;
-        }
-        public static TEntry MarkAsAdded<TEntry>(this TEntry entry)
-            where TEntry : EntityBase
-        {
-            entry.State = EntityState.Added;
-            return entry;
-        }
-        public static TEntry MarkAsDeleted<TEntry>(this TEntry entry)
-            where TEntry : EntityBase
-        {
-            entry.State = EntityState.Deleted;
-            return entry;
-        }
-        public static TEntry MarkAsModified<TEntry>(this TEntry entry)
-            where TEntry : EntityBase
-        {
-            entry.State = EntityState.Modified;
-            return entry;
         }
     }
 }
