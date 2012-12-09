@@ -14,7 +14,7 @@ using Wintellect.PowerCollections;
 
 namespace ScottyApps.Utilities.DbContextExtentions
 {
-    public static class DbContextExtentions
+    public static class DbContextExtensions
     {
         public static int Delete<TEntry>(this DbSet<TEntry> dbSet, Expression<Func<TEntry, bool>> predicate)
             where TEntry : class
