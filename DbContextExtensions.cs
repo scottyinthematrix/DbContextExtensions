@@ -95,14 +95,14 @@ namespace ScottyApps.Utilities.DbContextExtentions
         private static void AttachObjectWithState<TContext>(TContext ctx, List<Triple<object, EntityState, string[]>> triples, Triple<object, EntityState, string[]> entry)
             where TContext : DbContext
         {
-// ReSharper disable ConditionIsAlwaysTrueOrFalse
+            // ReSharper disable ConditionIsAlwaysTrueOrFalse
             if (entry == null)
-// ReSharper restore ConditionIsAlwaysTrueOrFalse
-// ReSharper disable HeuristicUnreachableCode
+            // ReSharper restore ConditionIsAlwaysTrueOrFalse
+            // ReSharper disable HeuristicUnreachableCode
             {
                 return;
             }
-// ReSharper restore HeuristicUnreachableCode
+            // ReSharper restore HeuristicUnreachableCode
             var entityEntry = entry.First;
             var entryType = entityEntry.GetType();
             var state = entry.Second;
@@ -110,27 +110,45 @@ namespace ScottyApps.Utilities.DbContextExtentions
 
             var objCtx = GetObjectContext(ctx);
             ObjectStateEntry objStateEntry = null;
-            if (false == objCtx.ObjectStateManager.TryGetObjectStateEntry(entityEntry, out objStateEntry))
+            var objInCtx = objCtx.ObjectStateManager.TryGetObjectStateEntry(entityEntry, out objStateEntry);
+            // attach object itself
+            switch (state)
             {
-                // attach object itself
-                switch (state)
-                {
-                    case EntityState.Added:
+                case EntityState.Added:
+                    if (!objInCtx)
+                    {
                         ctx.Set(entryType).Add(entityEntry);
-                        break;
-                    case EntityState.Deleted:
+                    }
+                    else if (objStateEntry.State != EntityState.Added)
+                    {
+                        objStateEntry.ChangeState(EntityState.Added);
+                    }
+                    break;
+                case EntityState.Deleted:
+                    if (!objInCtx)
+                    {
                         ctx.Set(entryType).Remove(entityEntry);
-                        break;
-                    case EntityState.Modified:
+                    }
+                    else if (objStateEntry.State != EntityState.Deleted)
+                    {
+                        objStateEntry.ChangeState(EntityState.Deleted);
+                    }
+                    break;
+                case EntityState.Modified:
+                    if (!objInCtx)
+                    {
                         ctx.Set(entryType).Attach(entityEntry);
+                    }
+                    if (!objInCtx || objStateEntry.State != EntityState.Modified)
+                    {
                         var dbEntry = ctx.Entry(entityEntry);
                         dbEntry.State = EntityState.Modified;
                         if (dirtyFieldNames != null && dirtyFieldNames.Length > 0)
                         {
                             dirtyFieldNames.ToList().ForEach(f => dbEntry.Property(f).IsModified = true);
                         }
-                        break;
-                }
+                    }
+                    break;
             }
             // attach navigation objects belong to this object
             var navProps = GetNavProps(ctx, entityEntry);
@@ -138,7 +156,7 @@ namespace ScottyApps.Utilities.DbContextExtentions
             {
                 foreach (var prop in navProps)
                 {
-                    var val = prop.First.GetValue(entry, null);
+                    var val = prop.First.GetValue(entityEntry, null);
                     if (val == null) continue;
 
                     if (!prop.Second)    // individual child
@@ -166,7 +184,7 @@ namespace ScottyApps.Utilities.DbContextExtentions
         }
 
         private static List<Type> _allowedEntityTypes = null;
-        private static List<Type> GetAllowedEntityTypes<TContext>(TContext ctx)
+        public static List<Type> GetAllowedEntityTypes<TContext>(TContext ctx)
             where TContext : DbContext
         {
             if (_allowedEntityTypes != null)
@@ -176,7 +194,7 @@ namespace ScottyApps.Utilities.DbContextExtentions
 
             var query = from p in ctx.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public)
                         let propType = p.PropertyType
-                        where propType.IsGenericType && propType == (typeof(DbSet<>))
+                        where propType.IsGenericType && propType.Name == /*(typeof(DbSet<>))*/"DbSet`1"
                         select propType.GetGenericArguments()[0];
             _allowedEntityTypes = query.ToList();
             return _allowedEntityTypes;

@@ -35,6 +35,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="EntityFramework">
+      <HintPath>..\..\ScottyBlogging\Entity\bin\Debug\EntityFramework.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
       <RequiredTargetFramework>3.5</RequiredTargetFramework>
@@ -58,6 +61,10 @@
     <Compile Include="QueryExtensionsTest.cs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\ScottyBlogging\Entity\Entity.csproj">
+      <Project>{f8a63905-97d5-4270-89ac-b46da1b85ed5}</Project>
+      <Name>Entity</Name>
+    </ProjectReference>
     <ProjectReference Include="..\DbContextExtensions.csproj">
       <Project>{a0ffb978-5ca5-447f-bd9f-03f1c25911b1}</Project>
       <Name>DbContextExtensions</Name>

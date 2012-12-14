@@ -71,8 +71,8 @@ namespace ScottyApps.Utilities.DbContextExtentions
                 else
                 {
                     orderedQuery = exp.Second
-                                       ? orderedQuery.ThenByDescending<T, dynamic>(exp.First)
-                                       : orderedQuery.ThenBy<T, dynamic>(exp.First);
+                                       ? orderedQuery.ThenByDescending(exp.First)
+                                       : orderedQuery.ThenBy(exp.First);
                 }
             }
 
