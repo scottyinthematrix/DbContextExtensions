@@ -111,6 +111,12 @@ namespace ScottyApps.Utilities.DbContextExtentions
             var objCtx = GetObjectContext(ctx);
             ObjectStateEntry objStateEntry = null;
             var objInCtx = objCtx.ObjectStateManager.TryGetObjectStateEntry(entityEntry, out objStateEntry);
+            var objWalked = objInCtx && objStateEntry.State == state;
+
+            if (objWalked)
+            {
+                return;
+            }
             // attach object itself
             switch (state)
             {
@@ -142,10 +148,13 @@ namespace ScottyApps.Utilities.DbContextExtentions
                     if (!objInCtx || objStateEntry.State != EntityState.Modified)
                     {
                         var dbEntry = ctx.Entry(entityEntry);
-                        dbEntry.State = EntityState.Modified;
                         if (dirtyFieldNames != null && dirtyFieldNames.Length > 0)
                         {
                             dirtyFieldNames.ToList().ForEach(f => dbEntry.Property(f).IsModified = true);
+                        }
+                        else
+                        {
+                            dbEntry.State = EntityState.Modified;
                         }
                     }
                     break;
