@@ -1,13 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data.Objects;
+using System.Data.Entity;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Text;
-using System.Threading.Tasks;
 using Wintellect.PowerCollections;
 
-namespace ScottyApps.Utilities.DbContextExtentions
+namespace ScottyApps.Utilities.DbContextExtensions
 {
     public static class QueryExtensions
     {
@@ -77,6 +75,22 @@ namespace ScottyApps.Utilities.DbContextExtentions
             }
 
             return orderedQuery;
+        }
+
+        public static T FindByKey<T>(this DbContext ctx, params object[] keyValues)
+            where T : class
+        {
+            return ctx.Set<T>().Find(keyValues);
+        }
+        public static IQueryable<T> FindAll<T>(this DbContext ctx, Expression<Func<T, bool>> predicate)
+            where T : class
+        {
+            return ctx.Set<T>().Where(predicate);
+        }
+        public static T FindSingle<T>(this DbContext ctx, Expression<Func<T, bool>> predicate)
+            where T : class
+        {
+            return ctx.Set<T>().Single(predicate);
         }
     }
 }

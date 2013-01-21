@@ -1,7 +1,6 @@
 ﻿using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using ScottyApps.ScottyBlogging.Entity;
-using ScottyApps.Utilities.DbContextExtentions;
 
 namespace ScottyApps.Utilities.DbContextExtentionsTest
 {
@@ -12,7 +11,7 @@ namespace ScottyApps.Utilities.DbContextExtentionsTest
         public void TestGetAllowedEntityTypes()
         {
             var ctx = new BloggingContext("Blogging");
-            var allowedTypes = DbContextExtensions.GetAllowedEntityTypes<BloggingContext>(ctx);
+            var allowedTypes = DbContextExtensions.DbContextExtensions.GetAllowedEntityTypes<BloggingContext>(ctx);
             Assert.IsNotNull(allowedTypes);
             Assert.IsTrue(allowedTypes.Count > 0);
         }

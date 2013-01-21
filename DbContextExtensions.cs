@@ -8,22 +8,20 @@ using System.Data.Objects;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 using Wintellect.PowerCollections;
 
-namespace ScottyApps.Utilities.DbContextExtentions
+namespace ScottyApps.Utilities.DbContextExtensions
 {
     public static class DbContextExtensions
     {
-        public static int Delete<TEntry>(this DbSet<TEntry> dbSet, Expression<Func<TEntry, bool>> predicate)
-            where TEntry : class
+        public static int Delete<T>(this DbSet<T> dbSet, Expression<Func<T, bool>> predicate)
+            where T : class
         {
             var query = dbSet.Where(predicate);
 
             string sql;
             object[] parameters;
-            BuildDeleteSql<TEntry>(GetObjectQueryFromDbQuery(query as DbQuery<TEntry>), out sql, out parameters);
+            BuildDeleteSql<T>(GetObjectQueryFromDbQuery(query as DbQuery<T>), out sql, out parameters);
 
             DbContext ctx = GetDbContextFromDbSet(dbSet);
             if (ctx == null)
@@ -34,8 +32,8 @@ namespace ScottyApps.Utilities.DbContextExtentions
             int rowsAffected = ctx.Database.ExecuteSqlCommand(sql, parameters);
             return rowsAffected;
         }
-        private static void BuildDeleteSql<TEntry>(ObjectQuery query, out string sql, out object[] parameters)
-            where TEntry : class
+        private static void BuildDeleteSql<T>(ObjectQuery query, out string sql, out object[] parameters)
+            where T : class
         {
             sql = string.Empty;
             parameters = null;
@@ -55,8 +53,8 @@ namespace ScottyApps.Utilities.DbContextExtentions
             sql = string.Format("delete {0} from {1} {2}", alias, tableWithAlias, origSql.Substring(idxWhere));
             parameters = query.Parameters.ToArray();
         }
-        private static DbContext GetDbContextFromDbSet<TEntry>(DbSet<TEntry> dbSet)
-            where TEntry : class
+        private static DbContext GetDbContextFromDbSet<T>(DbSet<T> dbSet)
+            where T : class
         {
             var binding = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             object internalSet = dbSet.GetType().GetField("_internalSet", binding).GetValue(dbSet);
@@ -69,7 +67,7 @@ namespace ScottyApps.Utilities.DbContextExtentions
         {
             return (ctx as IObjectContextAdapter).ObjectContext;
         }
-        private static ObjectQuery GetObjectQueryFromDbQuery<TEntry>(DbQuery<TEntry> query)
+        private static ObjectQuery GetObjectQueryFromDbQuery<T>(DbQuery<T> query)
         {
             var binding = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             var internalQuery = query.GetType().GetProperty("InternalQuery", binding).GetValue(query, null);
@@ -77,40 +75,36 @@ namespace ScottyApps.Utilities.DbContextExtentions
             return objectQuery as ObjectQuery;
         }
 
-        public static void SaveChanges<TContext>(this TContext ctx, List<Triple<object, EntityState, string[]>> toBeUpdatedEntities)
+        public static void SaveChanges<TContext>(this TContext ctx, params EntityBase[] toBeUpdatedEntities)
             where TContext : DbContext
         {
-            if (toBeUpdatedEntities == null || toBeUpdatedEntities.Count == 0)
+            if (toBeUpdatedEntities == null || toBeUpdatedEntities.Length == 0)
             {
                 return;
             }
 
             foreach (var entry in toBeUpdatedEntities)
             {
-                AttachObjectWithState(ctx, toBeUpdatedEntities, entry);
+                AttachObjectWithState(ctx, entry);
             }
 
             ctx.SaveChanges();
         }
-        private static void AttachObjectWithState<TContext>(TContext ctx, List<Triple<object, EntityState, string[]>> triples, Triple<object, EntityState, string[]> entry)
+        private static void AttachObjectWithState<TContext>(TContext ctx, EntityBase entry)
             where TContext : DbContext
         {
-            // ReSharper disable ConditionIsAlwaysTrueOrFalse
             if (entry == null)
-            // ReSharper restore ConditionIsAlwaysTrueOrFalse
-            // ReSharper disable HeuristicUnreachableCode
             {
                 return;
             }
             // ReSharper restore HeuristicUnreachableCode
-            var entityEntry = entry.First;
-            var entryType = entityEntry.GetType();
-            var state = entry.Second;
-            var dirtyFieldNames = entry.Third;
+            var entryType = entry.GetType();
+            var state = entry.State;
+            var dirtyFieldNames = entry.ModifiedProperties;
 
             var objCtx = GetObjectContext(ctx);
             ObjectStateEntry objStateEntry = null;
-            var objInCtx = objCtx.ObjectStateManager.TryGetObjectStateEntry(entityEntry, out objStateEntry);
+            var objInCtx = objCtx.ObjectStateManager.TryGetObjectStateEntry(entry, out objStateEntry);
             var objWalked = objInCtx && objStateEntry.State == state;
 
             if (objWalked)
@@ -120,10 +114,20 @@ namespace ScottyApps.Utilities.DbContextExtentions
             // attach object itself
             switch (state)
             {
+                case EntityState.Unchanged:
+                    if (!objInCtx)
+                    {
+                        ctx.Set(entryType).Attach(entry);
+                    }
+                    else if(objStateEntry.State != EntityState.Unchanged)
+                    {
+                        objStateEntry.ChangeState(EntityState.Unchanged);
+                    }
+                    break;
                 case EntityState.Added:
                     if (!objInCtx)
                     {
-                        ctx.Set(entryType).Add(entityEntry);
+                        ctx.Set(entryType).Add(entry);
                     }
                     else if (objStateEntry.State != EntityState.Added)
                     {
@@ -133,7 +137,7 @@ namespace ScottyApps.Utilities.DbContextExtentions
                 case EntityState.Deleted:
                     if (!objInCtx)
                     {
-                        ctx.Set(entryType).Remove(entityEntry);
+                        ctx.Set(entryType).Remove(entry);
                     }
                     else if (objStateEntry.State != EntityState.Deleted)
                     {
@@ -143,11 +147,11 @@ namespace ScottyApps.Utilities.DbContextExtentions
                 case EntityState.Modified:
                     if (!objInCtx)
                     {
-                        ctx.Set(entryType).Attach(entityEntry);
+                        ctx.Set(entryType).Attach(entry);
                     }
                     if (!objInCtx || objStateEntry.State != EntityState.Modified)
                     {
-                        var dbEntry = ctx.Entry(entityEntry);
+                        var dbEntry = ctx.Entry(entry);
                         if (dirtyFieldNames != null && dirtyFieldNames.Length > 0)
                         {
                             dirtyFieldNames.ToList().ForEach(f => dbEntry.Property(f).IsModified = true);
@@ -160,36 +164,31 @@ namespace ScottyApps.Utilities.DbContextExtentions
                     break;
             }
             // attach navigation objects belong to this object
-            var navProps = GetNavProps(ctx, entityEntry);
+            var navProps = GetNavProps(ctx, entry);
             if (navProps != null && navProps.Count > 0)
             {
                 foreach (var prop in navProps)
                 {
-                    var val = prop.First.GetValue(entityEntry, null);
+                    var val = prop.First.GetValue(entry, null);
                     if (val == null) continue;
 
                     if (!prop.Second)    // individual child
                     {
-                        AttachObjectWithState(ctx, triples, FindTriple(triples, val));
+                        AttachObjectWithState(ctx, val as EntityBase);
                     }
                     else
                     {
                         var collection = val as IEnumerable;
                         if (collection != null)
                         {
-                            foreach (var entity in collection.Cast<object>().Where(entity => entity != null))
+                            foreach (var e in collection.Cast<object>().Where(x => x != null))
                             {
-                                AttachObjectWithState(ctx, triples, FindTriple(triples, entity));
+                                AttachObjectWithState(ctx, e as EntityBase);
                             }
                         }
                     }
                 }
             }
-        }
-
-        private static Triple<object, EntityState, string[]> FindTriple(List<Triple<object, EntityState, string[]>> entryList, object entity)
-        {
-            return entryList.Find(e => ReferenceEquals(e.First, entity));
         }
 
         private static List<Type> _allowedEntityTypes = null;
