@@ -8,6 +8,7 @@ using System.Data.Objects;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Text;
 using Wintellect.PowerCollections;
 
 namespace ScottyApps.Utilities.DbContextExtensions
@@ -20,7 +21,7 @@ namespace ScottyApps.Utilities.DbContextExtensions
             var query = dbSet.Where(predicate);
 
             string sql;
-            object[] parameters;
+            ObjectParameter[] parameters;
             BuildDeleteSql<T>(GetObjectQueryFromDbQuery(query as DbQuery<T>), out sql, out parameters);
 
             DbContext ctx = GetDbContextFromDbSet(dbSet);
@@ -29,10 +30,33 @@ namespace ScottyApps.Utilities.DbContextExtensions
                 throw new Exception("failed on getting DbContext from DbSet");
             }
 
-            int rowsAffected = ctx.Database.ExecuteSqlCommand(sql, parameters);
+            var sqlWithParaValue = ReplaceParaWithValue(sql, parameters);
+            int rowsAffected = ctx.Database.ExecuteSqlCommand(sqlWithParaValue);
             return rowsAffected;
         }
-        private static void BuildDeleteSql<T>(ObjectQuery query, out string sql, out object[] parameters)
+        private static string ReplaceParaWithValue(string rawSql, ObjectParameter[] paras)
+        {
+            if (paras == null || paras.Length == 0)
+            {
+                return rawSql;
+            }
+
+            StringBuilder sb = new StringBuilder(rawSql);
+            foreach (var p in paras)
+            {
+                var valStr = p.Value.ToString();
+                // TODO need more work for other types, such as Guid, bool
+                if (p.ParameterType == typeof (string))
+                {
+                    valStr = "'" + valStr + "'";
+                }
+                // TODO the sign "@" is for SQL Server, need more work for other database types
+                sb.Replace("@" + p.Name, valStr).Replace(p.Name, valStr);
+            }
+
+            return sb.ToString();
+        }
+        private static void BuildDeleteSql<T>(ObjectQuery query, out string sql, out ObjectParameter[] parameters)
             where T : class
         {
             sql = string.Empty;
@@ -43,6 +67,8 @@ namespace ScottyApps.Utilities.DbContextExtensions
                 throw new ArgumentNullException("query");
             }
 
+            // NOTE the generated sql contains @ for sql server
+            // TODO not sure what would be for other database types
             string origSql = query.ToTraceString().Replace(Environment.NewLine, " ");
             int idxFrom = origSql.IndexOf("from", StringComparison.OrdinalIgnoreCase);
             int idxWhere = origSql.IndexOf("where", StringComparison.OrdinalIgnoreCase);
